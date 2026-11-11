@@ -1,0 +1,48 @@
+# 三平台 CI（照 miyu-voice 那一份）：格式、clippy、文档、测试、许可证、行数。
+name: CI
+
+on:
+  push:
+    branches: [main, "step/**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: 装上 rust-toolchain.toml 钉住的工具链
+        run: rustup toolchain install
+      - name: 取编译缓存
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          add-rust-environment-hash-key: false
+      - name: 格式
+        run: cargo fmt --all --check
+      - name: clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: 文档
+        run: cargo doc --workspace --no-deps --document-private-items --locked
+        env:
+          RUSTDOCFLAGS: -D warnings
+      - name: 测试
+        run: cargo test --workspace --locked --no-fail-fast
+      - name: 许可证（第三方依赖合得到一起、THIRD-PARTY-LICENSES.txt 是最新的）
+        if: runner.os == 'Linux'
+        run: cargo xtask licenses
+      - name: 行数（每个 .rs 不超过 500 行，测试也算）
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          over=$(find . -path ./target -prune -o -name '*.rs' -print0 | xargs -0 wc -l | awk '$2 != "total" && $1 > 500 {print}')
+          if [ -n "$over" ]; then echo "超过 500 行：" && echo "$over" && exit 1; fi

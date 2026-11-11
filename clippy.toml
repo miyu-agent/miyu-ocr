@@ -1,0 +1,4 @@
+# 测试里照旧能 unwrap：断言本来就该在不对时停下。
+allow-unwrap-in-tests = true
+# 文档里的产品名照原样写，不当成该加反引号的代码。
+doc-valid-idents = ["PaddleOCR", "PP-OCRv5", "RTen", "ONNX", "WebP", ".."]

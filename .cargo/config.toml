@@ -1,0 +1,3 @@
+[alias]
+# cargo xtask licenses、cargo xtask notices：见 xtask/src/main.rs。
+xtask = "run --quiet --package xtask --"

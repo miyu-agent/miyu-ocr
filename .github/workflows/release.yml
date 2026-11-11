@@ -1,0 +1,44 @@
+# 发包（照官方软件源的打包模板，同 miyu-voice）：推 `v*` 标签（`v` 加上清单里的 `version`）时，一种系统打一个 `.miyu`，传进这个
+# 标签的 Release。系统照清单的 `targets`：三台 CI 测过的那三种。包里带本仓库的 `LICENSE` 和第三方许可证清单
+# `THIRD-PARTY-LICENSES.txt`（`cargo xtask notices` 生成）。手动跑（workflow_dispatch）照样编、打包，不建 Release。
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  # 包里：清单、bin/miyu-ocr。模型第一次用时下载，不进包。
+  pack:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            target: linux-x86_64
+          - os: macos-latest
+            target: macos-aarch64
+          - os: windows-latest
+            target: windows-x86_64
+    uses: miyu-agent/packages/.github/workflows/pack.yml@main
+    permissions:
+      contents: write
+    with:
+      package: miyu-ocr
+      folder: dist/miyu-ocr
+      target: ${{ matrix.target }}
+      runs-on: ${{ matrix.os }}
+      build: |
+        set -euo pipefail
+        rustup toolchain install
+        cargo build --release --locked --bin miyu-ocr
+        exe=""
+        if [ "$RUNNER_OS" = Windows ]; then exe=.exe; fi
+        rm -rf dist/miyu-ocr && mkdir -p dist/miyu-ocr/bin
+        cp package/miyu-ocr/package.toml dist/miyu-ocr/
+        cp "target/release/miyu-ocr$exe" dist/miyu-ocr/bin/
+        cp LICENSE THIRD-PARTY-LICENSES.txt dist/miyu-ocr/
+        for need in package.toml THIRD-PARTY-LICENSES.txt "bin/miyu-ocr$exe" LICENSE; do
+          [ -f "dist/miyu-ocr/$need" ] || { echo "包里少了 miyu-ocr/$need"; exit 1; }
+        done

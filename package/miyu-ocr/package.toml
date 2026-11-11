@@ -1,0 +1,23 @@
+# OCR 文字识别：在本机认图片里的中文、英文（PaddleOCR 的手机版模型，跑模型用纯 Rust 的 RTen）。登记一件工具 ocr。
+
+[package]
+version = "0.1.0"
+# 带本机程序：一种系统一个包文件（.github/workflows/release.yml）。
+targets = ["linux-x86_64", "macos-aarch64", "windows-x86_64"]
+protocol = [1, 1]
+name = { en = "OCR", zh = "OCR文字识别" }
+summary = { en = "Reads the Chinese and English text in images, on this computer", zh = "在本机提取图片里的中文、英文" }
+author = "SHORiN-KiWATA"
+upstream = "https://github.com/miyu-agent/miyu-ocr"
+icon = "scan-text"
+
+# 扩展必写：miyu ocr <图> 在命令行认一张图；不带图的印模型下好没有。
+[command]
+name = "ocr"
+program = "miyu-ocr"
+about = { en = "OCR: read the text in an image", zh = "OCR：提取图片里的文字" }
+
+[process]
+args = ["serve"]
+# tools：登记 ocr；network：第一次启动下载模型（约 16 MB）。
+capabilities = ["tools", "network"]

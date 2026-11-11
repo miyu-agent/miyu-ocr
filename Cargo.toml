@@ -1,0 +1,52 @@
+[workspace]
+resolver = "3"
+members = [".", "xtask"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+license = "AGPL-3.0-or-later"
+publish = false
+
+[workspace.dependencies]
+serde_json = "1"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+unused_must_use = "deny"
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+unwrap_used = "deny"
+
+[package]
+name = "miyu-ocr"
+description = "Miyu 的 OCR 文字识别：本机用 PaddleOCR 的手机版模型认图片里的中文、英文"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+# 开发包（miyu-sdk 的 Rust 版）：握手、登记工具、一行一条的收发。只走协议，不依赖核心的 crate。钉一个提交，升级改这里。
+miyu-ext = { git = "https://github.com/miyu-agent/miyu-sdk", rev = "69530980f9c250c88dc15688ff9d2afd091ed51f" }
+serde_json.workspace = true
+# 跑模型：纯 Rust 的 ONNX 推理，不带 C 库，三个系统一样编。
+rten = "=0.28.0"
+rten-tensor = "=0.28.0"
+# 读图：纯 Rust 的解码器。
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp", "tiff"] }
+# 第一次用时下模型：纯 Rust 的 HTTPS（rustls），走系统的代理设置；照钉死的 SHA-256 校验。
+ureq = "3.5.1"
+sha2 = "0.11"
+
+[lints]
+workspace = true
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
