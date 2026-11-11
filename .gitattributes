@@ -1,0 +1,2 @@
+# 所有文本文件一律 LF：Windows 检出时不改换行，编进程序的许可证原文、按字节比的测试才对得上（同 miyu-im）。
+* text=auto eol=lf
