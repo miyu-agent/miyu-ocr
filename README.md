@@ -1,9 +1,9 @@
-# OCR文字识别（miyu-ocr）
+# OCR文字识别（ocr）
 
 Miyu 的扩展包：在本机提取图片里的中文、英文。装上就能用，不用另装 Tesseract、Python 这些。
 
 ```sh
-miyu pkg install miyu-ocr
+miyu pkg install ocr
 miyu ocr 截图.png        # 在命令行认一张图
 miyu ocr                 # 看模型下好没有
 ```

@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  # 包里：清单、bin/miyu-ocr。模型第一次用时下载，不进包。
+  # 包编号 ocr（文件夹名）；包里：清单、bin/miyu-ocr。模型第一次用时下载，不进包。
   pack:
     strategy:
       fail-fast: false
@@ -25,8 +25,8 @@ jobs:
     permissions:
       contents: write
     with:
-      package: miyu-ocr
-      folder: dist/miyu-ocr
+      package: ocr
+      folder: dist/ocr
       target: ${{ matrix.target }}
       runs-on: ${{ matrix.os }}
       build: |
@@ -35,10 +35,10 @@ jobs:
         cargo build --release --locked --bin miyu-ocr
         exe=""
         if [ "$RUNNER_OS" = Windows ]; then exe=.exe; fi
-        rm -rf dist/miyu-ocr && mkdir -p dist/miyu-ocr/bin
-        cp package/miyu-ocr/package.toml dist/miyu-ocr/
-        cp "target/release/miyu-ocr$exe" dist/miyu-ocr/bin/
-        cp LICENSE THIRD-PARTY-LICENSES.txt dist/miyu-ocr/
+        rm -rf dist/ocr && mkdir -p dist/ocr/bin
+        cp package/ocr/package.toml dist/ocr/
+        cp "target/release/miyu-ocr$exe" dist/ocr/bin/
+        cp LICENSE THIRD-PARTY-LICENSES.txt dist/ocr/
         for need in package.toml THIRD-PARTY-LICENSES.txt "bin/miyu-ocr$exe" LICENSE; do
-          [ -f "dist/miyu-ocr/$need" ] || { echo "包里少了 miyu-ocr/$need"; exit 1; }
+          [ -f "dist/ocr/$need" ] || { echo "包里少了 ocr/$need"; exit 1; }
         done
