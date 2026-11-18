@@ -1,4 +1,4 @@
-use super::{OVERLAP, Rect, Strip, boxes, scale, stride, strips};
+use super::{MAX_WIDTH, OVERLAP, Rect, Strip, boxes, scale, stride, strips};
 
 #[test]
 fn scale_shrinks_only_very_wide_images_and_grows_tiny_ones() {
@@ -89,4 +89,19 @@ fn boxes_are_the_confident_blobs_scaled_back() {
 #[test]
 fn an_empty_map_has_no_boxes() {
     assert_eq!(boxes(&[0.1; 64], 8, 8, 8, 8), Vec::<Rect>::new());
+}
+
+#[test]
+fn audit_132_a_thin_strip_is_never_scaled_wider_than_max_width() {
+    // 审计 #132：最短边放大到 64 时不再管 `MAX_WIDTH`：100000×1 放大 64 倍，送进模型的宽是 6_400_000，光输入张量就要
+    // 4.9 GB；80_000_000×1 的宽饱和到 u32::MAX（张量 3.3 TB）。几百字节的 PNG 就能压垮机器。放大以后的宽也要夹在上限里。
+    for (width, height) in [(100_000_u32, 1_u32), (80_000_000, 1), (20_000, 10)] {
+        #[expect(clippy::cast_precision_loss, reason = "测试里的边长")]
+        let wide = width as f32;
+        let input_width = stride(wide * scale(width, height));
+        assert!(
+            f64::from(input_width) <= f64::from(MAX_WIDTH),
+            "{width}×{height} 送进模型宽 {input_width}，超过 MAX_WIDTH {MAX_WIDTH}"
+        );
+    }
 }
