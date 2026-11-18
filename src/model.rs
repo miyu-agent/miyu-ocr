@@ -1,13 +1,16 @@
 //! 模型文件：PaddleOCR 的两个手机版模型和字表，转好的 ONNX 放在 oar-ocr 的 Release 里（Apache-2.0）。找字用 PP-OCRv5，
 //! 认字用 PP-OCRv4：v5 的认字模型遇到 JPEG 压缩的图会整字漏掉（「一」「行」「至」这类常用字，同一张图存成 PNG 就认得全，
 //! 两份不同的转换一样），v4 的在测的 PNG、JPEG 上都认得全，还小 6 MB（README「为什么认字用 v4」）。
-//! 不随包发：第一次用时下到这个包的缓存目录（`MIYU_CACHE_DIR`），照钉死的 SHA-256 校验过才用。先写进临时文件、一边算
-//! 哈希，对得上才改名成正式的；下到一半断了的下次从头来。走系统的代理设置（`HTTPS_PROXY` 这类）。
+//! 不随包发：第一次用时下到这个包的缓存目录（`MIYU_CACHE_DIR`），照钉死的 SHA-256 校验过才用。每次下载写自己的临时文件
+//! （名字带进程号，CLI 和扩展服务同时下也不撞）、一边算哈希，对得上才改名成正式的；下到一半断了的下次从头来。走系统的
+//! 代理设置（`HTTPS_PROXY` 这类）。连不上、等不到回应、下着下着 [`STALL`] 没有新数据就报错；慢但一直在动的不限总时长。
 
 use std::fs::{self, File};
 use std::io::{self, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, PoisonError};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use sha2::{Digest, Sha256};
 
@@ -49,6 +52,25 @@ pub fn total_size() -> u64 {
 /// 两个调用同时发现没下好时只下一次。
 static DOWNLOADING: Mutex<()> = Mutex::new(());
 
+/// 查域名、连上（含代理和 TLS 握手）、发出请求、等到回应头，每一步最多等这么久；下载中这么久没有新数据也算断了。
+const STALL: Duration = Duration::from_secs(30);
+
+/// 下载用的连接：每一步都限时（[`STALL`]），不设总时长。
+fn agent() -> ureq::Agent {
+    let config = ureq::Agent::config_builder()
+        .timeout_resolve(Some(STALL))
+        .timeout_connect(Some(STALL))
+        .timeout_send_request(Some(STALL))
+        .timeout_recv_response(Some(STALL))
+        .timeout_per_read(Some(STALL))
+        .timeout_per_write(Some(STALL))
+        .build();
+    ureq::Agent::new_with_config(config)
+}
+
+/// 本进程里第几次装（临时文件名用）。
+static INSTALLS: AtomicU64 = AtomicU64::new(0);
+
 /// 放在 `dir` 里的模型。
 pub struct Models {
     dir: PathBuf,
@@ -86,13 +108,15 @@ impl Models {
         let _one = DOWNLOADING.lock().unwrap_or_else(PoisonError::into_inner);
         fs::create_dir_all(&self.dir)
             .map_err(|error| format!("cannot create {}: {error}", self.dir.display()))?;
+        let agent = agent();
         for file in &FILES {
             let path = self.path(file.name);
             if fs::metadata(&path).is_ok_and(|meta| meta.len() == file.size) {
                 continue;
             }
             let url = format!("{BASE}/{}", file.name);
-            let body = ureq::get(&url)
+            let body = agent
+                .get(&url)
                 .call()
                 .map_err(|error| format!("could not download {url}: {error}"))?
                 .into_body()
@@ -103,15 +127,39 @@ impl Models {
     }
 }
 
-/// 把 `body` 写进 `path` 旁边的临时文件、一边算 SHA-256，对得上 `expected` 才改名成 `path`。
+/// 这一次下载自己的临时文件：`path` 旁边的 `<名>.<进程号>-<第几次>-<纳秒>.partial`，两份同时装不撞名。
+fn partial_path(path: &Path) -> PathBuf {
+    let count = INSTALLS.fetch_add(1, Ordering::Relaxed);
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |since| since.subsec_nanos());
+    let mut name = path.file_name().unwrap_or_default().to_os_string();
+    name.push(format!(".{}-{count}-{nanos}.partial", std::process::id()));
+    path.with_file_name(name)
+}
+
+/// 临时文件：没改名成正式的就删掉（出错、哈希不对、panic 都算）。
+struct Partial(PathBuf);
+
+impl Drop for Partial {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.0);
+    }
+}
+
+/// 把 `body` 写进 `path` 旁边这一次自己的临时文件、一边算 SHA-256，对得上 `expected` 才改名成 `path`。
 ///
 /// # Errors
 ///
 /// 读写出错；哈希对不上（临时文件删掉）。
 pub fn install(mut body: impl Read, path: &Path, expected: &str) -> Result<(), String> {
-    let partial = path.with_extension("partial");
-    let result = (|| -> io::Result<String> {
-        let mut out = BufWriter::new(File::create(&partial)?);
+    let partial = Partial(partial_path(path));
+    let got = (|| -> io::Result<String> {
+        let file = File::options()
+            .write(true)
+            .create_new(true)
+            .open(&partial.0)?;
+        let mut out = BufWriter::new(file);
         let mut hasher = Sha256::new();
         let mut buffer = vec![0u8; 64 * 1024];
         loop {
@@ -126,21 +174,14 @@ pub fn install(mut body: impl Read, path: &Path, expected: &str) -> Result<(), S
             .map_err(io::IntoInnerError::into_error)?
             .sync_all()?;
         Ok(hex(&hasher.finalize()))
-    })();
-    let got = match result {
-        Ok(got) => got,
-        Err(error) => {
-            let _ = fs::remove_file(&partial);
-            return Err(error.to_string());
-        }
-    };
+    })()
+    .map_err(|error| error.to_string())?;
     if got != expected {
-        let _ = fs::remove_file(&partial);
         return Err(format!(
             "the download's SHA-256 is {got}, expected {expected}"
         ));
     }
-    fs::rename(&partial, path).map_err(|error| error.to_string())
+    fs::rename(&partial.0, path).map_err(|error| error.to_string())
 }
 
 fn hex(bytes: &[u8]) -> String {

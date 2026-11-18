@@ -20,7 +20,7 @@ fn a_matching_download_is_kept() {
     let path = dir.join("model.onnx");
     install(&b"hello"[..], &path, HELLO).unwrap();
     assert_eq!(std::fs::read(&path).unwrap(), b"hello");
-    assert!(!dir.join("model.partial").exists());
+    assert_eq!(names(&dir), ["model.onnx"]);
 }
 
 #[test]
@@ -30,7 +30,36 @@ fn a_mismatched_download_is_thrown_away() {
     let why = install(&b"hellp"[..], &path, HELLO).unwrap_err();
     assert!(why.contains("SHA-256"), "{why}");
     assert!(!path.exists());
-    assert!(!dir.join("model.partial").exists());
+    assert_eq!(names(&dir), Vec::<String>::new());
+}
+
+/// 目录里有哪些文件（排好序）：临时文件装完、失败、panic 后都不该留下。
+fn names(dir: &std::path::Path) -> Vec<String> {
+    let mut found: Vec<String> = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    found.sort();
+    found
+}
+
+#[test]
+fn a_download_that_panics_leaves_no_partial_file() {
+    let dir = scratch("panic");
+    let path = dir.join("model.onnx");
+    let body = Scripted(|_: &mut [u8]| -> io::Result<usize> { panic!("the reader broke") });
+    let caught = std::panic::catch_unwind(|| install(body, &path, HELLO));
+    assert!(caught.is_err());
+    assert_eq!(names(&dir), Vec::<String>::new());
+}
+
+#[test]
+fn an_old_partial_file_is_left_alone() {
+    let dir = scratch("old-partial");
+    let path = dir.join("model.onnx");
+    std::fs::write(dir.join("model.partial"), b"someone else's").unwrap();
+    install(&b"hello"[..], &path, HELLO).unwrap();
+    assert_eq!(names(&dir), ["model.onnx", "model.partial"]);
 }
 
 #[test]
