@@ -88,29 +88,19 @@ impl Engine {
 impl Engine {
     /// 找字：一条条送进模型（[`detect::strips`]），框换回原图坐标，只留中线落在这一条自己那段里的。
     fn find(&self, image: &RgbImage) -> Result<Vec<detect::Rect>, String> {
-        let scale = detect::scale(image.width(), image.height());
+        if image.width() == 0 || image.height() == 0 {
+            return Ok(Vec::new());
+        }
+        let fit = detect::fit(image.width(), image.height());
+        let (scale, input_width) = (fit.scale, fit.width);
         #[expect(clippy::cast_precision_loss, reason = "图的边长在几万以内")]
-        let (width, height) = (image.width() as f32, image.height() as f32);
-        let input_width = detect::stride(width * scale);
-        #[expect(
-            clippy::cast_possible_truncation,
-            clippy::cast_sign_loss,
-            reason = "几万以内的正数"
-        )]
-        let scaled_height = (height * scale).round() as u32;
+        let height = image.height() as f32;
         let mut found = Vec::new();
-        for strip in detect::strips(input_width, scaled_height) {
+        for strip in detect::strips(input_width, fit.height) {
             // 这一条在原图上是哪几行。
             #[expect(clippy::cast_precision_loss, reason = "行号在几万以内")]
             let row = |scaled: u32| (scaled as f32 / scale).min(height);
-            let (top, bottom) = (row(strip.top), row(strip.bottom));
-            #[expect(
-                clippy::cast_possible_truncation,
-                clippy::cast_sign_loss,
-                reason = "行号在几万以内"
-            )]
-            let (first, rows) = (top as u32, ((bottom - top).round() as u32).max(1));
-            let rows = rows.min(image.height() - first.min(image.height() - 1));
+            let (first, rows) = detect::source_rows(&strip, scale, image.height());
             let part = image::imageops::crop_imm(image, 0, first, image.width(), rows).to_image();
             #[expect(clippy::cast_precision_loss, reason = "行数在几万以内")]
             let input_height = detect::stride(rows as f32 * scale);

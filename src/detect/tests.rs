@@ -1,4 +1,7 @@
-use super::{MAX_WIDTH, OVERLAP, Rect, Strip, boxes, scale, stride, strips};
+use super::{
+    MAX_GROWN_HEIGHT, MAX_WIDTH, OVERLAP, Rect, STRIP_PIXELS, Strip, boxes, fit, scale,
+    source_rows, stride, strips,
+};
 
 #[test]
 fn scale_shrinks_only_very_wide_images_and_grows_tiny_ones() {
@@ -103,5 +106,48 @@ fn audit_132_a_thin_strip_is_never_scaled_wider_than_max_width() {
             f64::from(input_width) <= f64::from(MAX_WIDTH),
             "{width}×{height} 送进模型宽 {input_width}，超过 MAX_WIDTH {MAX_WIDTH}"
         );
+    }
+}
+
+/// 极端宽高比走完 缩放 → 取整 → 切条 → 每条的输入尺寸：宽高都在上限里、不为 0，每条送进模型的像素有界。认不出字可以，
+/// 不能崩、不能一次要几个 GB。
+#[test]
+fn extreme_aspect_ratios_give_bounded_nonzero_inputs() {
+    for (width, height) in [
+        (100_000_u32, 1_u32),
+        (1, 100_000),
+        (80_000_000, 1),
+        (1, 80_000_000),
+        (1, 1),
+        (20_000, 10),
+    ] {
+        let fit = fit(width, height);
+        assert!(
+            fit.width > 0 && f64::from(fit.width) <= f64::from(MAX_WIDTH),
+            "{width}×{height}：{fit:?}"
+        );
+        assert!(
+            fit.height > 0
+                && f64::from(fit.height) <= f64::from(MAX_GROWN_HEIGHT).max(f64::from(height)),
+            "{width}×{height}：{fit:?}"
+        );
+        let all = strips(fit.width, fit.height);
+        assert!(!all.is_empty(), "{width}×{height}");
+        for strip in &all {
+            let (first, rows) = source_rows(strip, fit.scale, height);
+            assert!(
+                rows > 0 && first + rows <= height,
+                "{width}×{height}：{strip:?}"
+            );
+            #[expect(clippy::cast_precision_loss, reason = "测试里的行数")]
+            let input_height = stride(rows as f32 * fit.scale);
+            assert!(
+                input_height > 0
+                    && u64::from(fit.width) * u64::from(input_height)
+                        <= 2 * u64::from(STRIP_PIXELS),
+                "{width}×{height}：{strip:?} 送进模型 {}×{input_height}",
+                fit.width
+            );
+        }
     }
 }

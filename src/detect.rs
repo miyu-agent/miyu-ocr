@@ -15,6 +15,8 @@ use rten_tensor::NdTensor;
 const MAX_WIDTH: f32 = 2560.0;
 /// 最短边最少多少：太小的图放大到这么大再找。
 const MIN_SIDE: f32 = 64.0;
+/// 放大时高最多放到多少：再高的细长条不再放大，只靠切条，免得切出几万条送进模型。
+const MAX_GROWN_HEIGHT: f32 = 100_000.0;
 /// 一条最多送多少个像素进模型（约占 130 MB）。
 const STRIP_PIXELS: u32 = 1_000_000;
 /// 一条最矮多少（很宽的图也不切得太碎）。
@@ -56,16 +58,47 @@ impl Rect {
     }
 }
 
-/// 原图缩多少倍送进模型：太宽的缩到 [`MAX_WIDTH`]，太小的放大到最短边 [`MIN_SIDE`]，别的照原样。
+/// 原图缩多少倍送进模型：太宽的缩到 [`MAX_WIDTH`]，太小的放大到最短边 [`MIN_SIDE`]，别的照原样。放大以后宽也不超过
+/// [`MAX_WIDTH`]、高不超过 [`MAX_GROWN_HEIGHT`]（本来就更高的不放大）：极细长的图（100000×1 这类）放不到最短边 64，
+/// 认不出字，但送进模型的尺寸有界。
 #[must_use]
 pub fn scale(width: u32, height: u32) -> f32 {
-    #[expect(clippy::cast_precision_loss, reason = "图的边长在几万以内")]
-    let (w, h) = (width as f32, height as f32);
-    let scale = (MAX_WIDTH / w).min(1.0);
-    if w.min(h) * scale < MIN_SIDE {
-        MIN_SIDE / w.min(h)
-    } else {
-        scale
+    #[expect(clippy::cast_precision_loss, reason = "图的边长，差一点不要紧")]
+    let (w, h) = (width.max(1) as f32, height.max(1) as f32);
+    let shrink = (MAX_WIDTH / w).min(1.0);
+    let short = w.min(h);
+    if short * shrink >= MIN_SIDE {
+        return shrink;
+    }
+    (MIN_SIDE / short)
+        .min(MAX_WIDTH / w)
+        .min((MAX_GROWN_HEIGHT / h).max(shrink))
+}
+
+/// 整张图怎么送进模型：缩放倍数、送进去的宽（32 的倍数）、缩过以后的高（切条前，至少 1）。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Fit {
+    pub scale: f32,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// 原图 `width` × `height` 送进模型的尺寸（[`scale`]、[`stride`]）。
+#[must_use]
+pub fn fit(width: u32, height: u32) -> Fit {
+    let scale = scale(width, height);
+    #[expect(clippy::cast_precision_loss, reason = "图的边长，差一点不要紧")]
+    let (w, h) = (width.max(1) as f32, height.max(1) as f32);
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "正数，放大的高有上限，没放大的不超过原图"
+    )]
+    let scaled_height = ((h * scale).round() as u32).max(1);
+    Fit {
+        scale,
+        width: stride(w * scale),
+        height: scaled_height,
     }
 }
 
@@ -119,6 +152,23 @@ pub fn strips(width: u32, height: u32) -> Vec<Strip> {
         }
         top += step;
     }
+}
+
+/// 切出来的一条（缩放倍数 `scale`）对应原图（高 `image_height`）的哪几行：交回第一行和行数，至少一行、不出图。
+#[must_use]
+pub fn source_rows(strip: &Strip, scale: f32, image_height: u32) -> (u32, u32) {
+    let height = image_height.max(1);
+    #[expect(clippy::cast_precision_loss, reason = "行号，差一点不要紧")]
+    let row = |scaled: u32| (scaled as f32 / scale).min(height as f32);
+    let (top, bottom) = (row(strip.top), row(strip.bottom));
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "行号是不超过图高的正数"
+    )]
+    let (first, rows) = (top as u32, (bottom - top).round() as u32);
+    let first = first.min(height - 1);
+    (first, rows.max(1).min(height - first))
 }
 
 /// 模型的输入：一块图缩成 `width` × `height`（32 的倍数），`[1, 3, 高, 宽]`，归一过的。
