@@ -194,12 +194,12 @@ pub fn boxes(
     image_width: u32,
     image_height: u32,
 ) -> Vec<Rect> {
-    #[expect(clippy::cast_precision_loss, reason = "边长在几万以内")]
+    #[expect(clippy::cast_precision_loss, reason = "图的边长，差一点不要紧")]
     let (scale_x, scale_y) = (
         image_width as f32 / width as f32,
         image_height as f32 / height as f32,
     );
-    #[expect(clippy::cast_precision_loss, reason = "边长在几万以内")]
+    #[expect(clippy::cast_precision_loss, reason = "图的边长，差一点不要紧")]
     let (right, bottom) = (image_width as f32, image_height as f32);
     let mut seen = vec![false; width * height];
     let mut found = Vec::new();

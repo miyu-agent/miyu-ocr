@@ -93,16 +93,16 @@ impl Engine {
         }
         let fit = detect::fit(image.width(), image.height());
         let (scale, input_width) = (fit.scale, fit.width);
-        #[expect(clippy::cast_precision_loss, reason = "图的边长在几万以内")]
+        #[expect(clippy::cast_precision_loss, reason = "图的边长，差一点不要紧")]
         let height = image.height() as f32;
         let mut found = Vec::new();
         for strip in detect::strips(input_width, fit.height) {
             // 这一条在原图上是哪几行。
-            #[expect(clippy::cast_precision_loss, reason = "行号在几万以内")]
+            #[expect(clippy::cast_precision_loss, reason = "行号，差一点不要紧")]
             let row = |scaled: u32| (scaled as f32 / scale).min(height);
             let (first, rows) = detect::source_rows(&strip, scale, image.height());
             let part = image::imageops::crop_imm(image, 0, first, image.width(), rows).to_image();
-            #[expect(clippy::cast_precision_loss, reason = "行数在几万以内")]
+            #[expect(clippy::cast_precision_loss, reason = "行数，差一点不要紧")]
             let input_height = detect::stride(rows as f32 * scale);
             let output = self
                 .detector
@@ -117,7 +117,7 @@ impl Engine {
                 .try_into()
                 .map_err(|_| "text detection gave an unexpected output".to_string())?;
             let [_, _, map_height, map_width] = probability.shape();
-            #[expect(clippy::cast_precision_loss, reason = "行号在几万以内")]
+            #[expect(clippy::cast_precision_loss, reason = "行号，差一点不要紧")]
             let (own_top, own_bottom, offset) =
                 (row(strip.own_top), row(strip.own_bottom), first as f32);
             for mut rect in detect::boxes(
@@ -144,7 +144,7 @@ fn crop(image: &RgbImage, rect: detect::Rect) -> Option<RgbImage> {
     #[expect(
         clippy::cast_possible_truncation,
         clippy::cast_sign_loss,
-        reason = "框在图里，坐标是几万以内的正数"
+        reason = "框在图里，坐标是不超过图边长的正数"
     )]
     let (x, y, width, height) = (
         rect.x0.floor() as u32,
